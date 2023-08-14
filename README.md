@@ -11,7 +11,7 @@ git branch <your-new-branch-name>
 git checkout <your-new-branch-name>
 ```
 
-TODO: pic of user interface
+![teaser image](media/teaser.png)
 
 ## Compile
 
@@ -20,7 +20,7 @@ Compile this project using the standard cmake routine:
     mkdir build
     cd build
     cmake ..
-    make
+    make -j4  ## replace 4 with however many cores you want to use
 
 This should find and build the dependencies and create a `main` binary.
 
