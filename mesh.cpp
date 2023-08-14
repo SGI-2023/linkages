@@ -1,4 +1,5 @@
 #include <Eigen/Core>
+#include <igl/opengl/glfw/Viewer.h>
 
 /*
  * Generate a mesh with a square linkage pattern, with dimensions N x M (where N = number of rows of squares, M = number
