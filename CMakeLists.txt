@@ -15,3 +15,10 @@ igl_include(imgui)
 file(GLOB SRC_FILES *.cpp)
 add_executable(${PROJECT_NAME} ${SRC_FILES})
 target_link_libraries(${PROJECT_NAME} PUBLIC igl::glfw igl::imgui)
+
+# Copy data directory to binary directory
+add_custom_command(
+    TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/data $<TARGET_FILE_DIR:${PROJECT_NAME}>/data
+)
