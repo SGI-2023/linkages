@@ -144,7 +144,9 @@ int main(int argc, char* argv[]) {
     }
 
     // Load in mesh
-    igl::read_triangle_mesh(MESH_FILEPATH, VERTICES, FACES);
+    if (!igl::read_triangle_mesh(MESH_FILEPATH, VERTICES, FACES)) {
+        throw std::runtime_error{"Error: Could not read mesh file"};
+    }
 
     // Attach a menu plugin
     igl::opengl::glfw::Viewer viewer;
