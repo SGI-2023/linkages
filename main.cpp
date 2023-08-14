@@ -7,11 +7,11 @@
 #include <igl/read_triangle_mesh.h>
 #include <igl/unproject_onto_mesh.h>
 
+#include "mesh.h"
 
 // ==  geometric data
-Eigen::MatrixXd VERTICES; // |V| x 3 matrix; the i-th row contains the 3D position of the i-th vertex
-Eigen::MatrixXi FACES;    // |F| x 3 matrix; the i-th row contains the vertex indices of the i-th face, in CCW order
-Eigen::MatrixXi EDGES;
+Eigen::MatrixXd VERTICES(0, 3); // |V| x 3 matrix; the i-th row contains the 3D position of the i-th vertex
+Eigen::MatrixXi FACES(0, 3); // |F| x 3 matrix; the i-th row contains the vertex indices of the i-th face, in CCW order
 
 // == viz parameters
 Eigen::RowVector3d PURPLE(80.0 / 255.0, 64.0 / 255.0, 255.0 / 255.0);
@@ -26,10 +26,13 @@ igl::ARAPData ARAP_DATA;
 bool IS_DRAGGING = false;
 
 // ==  program parameters
-std::string MESH_FILEPATH, MESHNAME;
+bool INTERNAL_MESH = false;
+std::string MESH_FILEPATH;
 Eigen::RowVector3f LAST_MOUSE;
 bool SELECT_ANCHORS = true;
 int LAST_VERTEX;
+int N_ROWS = 2;
+int N_COLS = 2;
 
 
 void update_vis(igl::opengl::glfw::Viewer& viewer) {
@@ -135,17 +138,28 @@ bool mouse_move(igl::opengl::glfw::Viewer& viewer, int button, int mods) {
     return false;
 }
 
+void setup(igl::opengl::glfw::Viewer& viewer) {
+    // ARAP precomputation
+    ARAP_DATA.max_iter = 100;
+    ARAP_DATA.with_dynamics = true;
+    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES;
+    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES_AND_RIMS;
+    ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_ELEMENTS; // triangles or tets
+    Eigen::VectorXi b(0);
+    igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
+
+    viewer.data().set_mesh(VERTICES, FACES);
+}
+
 int main(int argc, char* argv[]) {
 
     if (argc > 1) {
         MESH_FILEPATH = argv[1];
+        INTERNAL_MESH = false;
+        // Load in mesh
+        igl::read_triangle_mesh(MESH_FILEPATH, VERTICES, FACES);
     } else {
-        std::cerr << "Usage: ./main [path/to/mesh]" << std::endl;
-    }
-
-    // Load in mesh
-    if (!igl::read_triangle_mesh(MESH_FILEPATH, VERTICES, FACES)) {
-        throw std::runtime_error{"Error: Could not read mesh file"};
+        INTERNAL_MESH = true;
     }
 
     // Attach a menu plugin
@@ -160,20 +174,23 @@ int main(int argc, char* argv[]) {
         // Draw parent menu content
         menu.draw_viewer_menu();
 
+        if (ImGui::CollapsingHeader("Mesh generation", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::InputInt("Rows", &N_ROWS);
+            ImGui::InputInt("Cols", &N_COLS);
+            if (ImGui::Button("Square linkage")) {
+                generateSquarePatternMesh(N_ROWS, N_COLS, VERTICES, FACES);
+                setup(viewer);
+            }
+        }
+
         ImGui::Text("Mode: %s", SELECT_ANCHORS ? "Anchor selection" : "ARAP deformation");
     };
 
-    // ARAP precomputation
-    ARAP_DATA.max_iter = 100;
-    ARAP_DATA.with_dynamics = true;
-    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES;
-    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES_AND_RIMS;
-    ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_ELEMENTS; // triangles or tets
-    Eigen::VectorXi b(0);
-    igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
+    if (!INTERNAL_MESH) {
+        setup(viewer);
+    }
 
-    // Plot the mesh, set up callbacks
-    viewer.data().set_mesh(VERTICES, FACES);
+    // Set up callbacks
     viewer.data().set_face_based(true);
     viewer.core().is_animating = true;
     viewer.callback_key_pressed = &key_pressed;
