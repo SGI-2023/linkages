@@ -28,9 +28,9 @@ This should find and build the dependencies and create a `main` binary.
 
 From within the `build` directory, run:
 
-    ./main path/to/mesh
+    ./main [path/to/mesh]
 
-A glfw app should launch displaying a 3D cube.
+A glfw app should launch.
 
 ## Documentation
 The [libigl tutorial](http://libigl.github.io/libigl/tutorial/).
