@@ -26,7 +26,8 @@ igl::ARAPData ARAP_DATA;
 bool IS_DRAGGING = false;
 
 // ==  program parameters
-std::string MESH_FILEPATH, MESHNAME;
+bool INTERNAL_MESH = false;
+std::string MESH_FILEPATH;
 Eigen::RowVector3f LAST_MOUSE;
 bool SELECT_ANCHORS = true;
 int LAST_VERTEX;
@@ -139,8 +140,9 @@ int main(int argc, char* argv[]) {
 
     if (argc > 1) {
         MESH_FILEPATH = argv[1];
+        INTERNAL_MESH = false;
     } else {
-        std::cerr << "Usage: ./main [path/to/mesh]" << std::endl;
+        INTERNAL_MESH = true;
     }
 
     // Load in mesh
