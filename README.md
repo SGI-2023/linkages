@@ -1,13 +1,9 @@
-# libigl example project
+# SGI 2023 Week 6: Design and Simulation of Kirigami Linkages
 
-A blank project example showing how to use libigl and cmake. Feel free and
-encouraged to copy or fork this project as a way of starting a new personal
-project using libigl.
+TODO: pic of user interface
 
-## See the tutorial first
-
-Then build, run and understand the [libigl
-tutorial](http://libigl.github.io/libigl/tutorial/).
+## Documentation
+The [libigl tutorial](http://libigl.github.io/libigl/tutorial/).
 
 ## Dependencies
 
@@ -35,12 +31,12 @@ Compile this project using the standard cmake routine:
     cmake ..
     make
 
-This should find and build the dependencies and create a `example` binary.
+This should find and build the dependencies and create a `main` binary.
 
 ## Run
 
-From within the `build` directory just issue:
+From within the `build` directory, run:
 
-    ./example
+    ./main path/to/mesh
 
 A glfw app should launch displaying a 3D cube.

@@ -1,34 +1,172 @@
+#include <igl/arap.h>
 #include <igl/opengl/glfw/Viewer.h>
+#include <igl/opengl/glfw/imgui/ImGuiHelpers.h>
+#include <igl/opengl/glfw/imgui/ImGuiMenu.h>
+#include <igl/opengl/glfw/imgui/ImGuiPlugin.h>
+#include <igl/readOFF.h>
+#include <igl/read_triangle_mesh.h>
+#include <igl/unproject_onto_mesh.h>
 
-int main(int argc, char *argv[])
-{
-  // Inline mesh of a cube
-  const Eigen::MatrixXd V= (Eigen::MatrixXd(8,3)<<
-    0.0,0.0,0.0,
-    0.0,0.0,1.0,
-    0.0,1.0,0.0,
-    0.0,1.0,1.0,
-    1.0,0.0,0.0,
-    1.0,0.0,1.0,
-    1.0,1.0,0.0,
-    1.0,1.0,1.0).finished();
-  const Eigen::MatrixXi F = (Eigen::MatrixXi(12,3)<<
-    0,6,4,
-    0,2,6,
-    0,3,2,
-    0,1,3,
-    2,7,6,
-    2,3,7,
-    4,6,7,
-    4,7,5,
-    0,4,5,
-    0,5,1,
-    1,5,7,
-    1,7,3).finished();
 
-  // Plot the mesh
-  igl::opengl::glfw::Viewer viewer;
-  viewer.data().set_mesh(V, F);
-  viewer.data().set_face_based(true);
-  viewer.launch();
+// ==  geometric data
+Eigen::MatrixXd VERTICES; // |V| x 3 matrix; the i-th row contains the 3D position of the i-th vertex
+Eigen::MatrixXi FACES;    // |F| x 3 matrix; the i-th row contains the vertex indices of the i-th face, in CCW order
+Eigen::MatrixXi EDGES;
+
+// == viz parameters
+Eigen::RowVector3d PURPLE(80.0 / 255.0, 64.0 / 255.0, 255.0 / 255.0);
+Eigen::RowVector3d RED(1.0, 0.0, 0.0);
+Eigen::RowVector3d GOLD(255.0 / 255.0, 228.0 / 255.0, 58.0 / 255.0);
+
+// ==  solve data
+std::vector<int> ANCHORS; // indices of vertices which have been selected as anchors
+Eigen::MatrixXd HANDLES;
+igl::ARAPData ARAP_DATA;
+bool IS_DRAGGING = false;
+
+// ==  program parameters
+std::string MESH_FILEPATH, MESHNAME;
+Eigen::RowVector3f LAST_MOUSE;
+bool SELECT_ANCHORS = true;
+int LAST_VERTEX;
+
+
+void update_vis(igl::opengl::glfw::Viewer& viewer) {
+    Eigen::MatrixXd points(ANCHORS.size(), 3);
+    for (size_t i = 0; i < ANCHORS.size(); i++) points.row(i) = VERTICES.row(ANCHORS[i]);
+    viewer.data().set_points(points, PURPLE);
+}
+
+void update_ARAP(igl::opengl::glfw::Viewer& viewer) {
+    igl::arap_solve(HANDLES, ARAP_DATA, VERTICES);
+    viewer.data().set_vertices(VERTICES);
+    viewer.data().compute_normals();
+}
+
+bool key_pressed(igl::opengl::glfw::Viewer& viewer, unsigned char key, int mods) {
+    switch (key) {
+        case ' ': {
+            SELECT_ANCHORS = !SELECT_ANCHORS;
+            break;
+        }
+        default: {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool mouse_down(igl::opengl::glfw::Viewer& viewer, int button, int mods) {
+
+    // Cast a ray in the view direction starting from the mouse position
+    double x = viewer.current_mouse_x;
+    double y = viewer.core().viewport(3) - viewer.current_mouse_y;
+    LAST_MOUSE = Eigen::RowVector3f(x, y, 0);
+    int fid;            // index of selected face
+    Eigen::Vector3f bc; // barycentric coords in selected face
+    if (igl::unproject_onto_mesh(Eigen::Vector2f(x, y), viewer.core().view, viewer.core().proj, viewer.core().viewport,
+                                 VERTICES, FACES, fid, bc)) {
+
+        // Get closest vertex. Could do this calculation purely intrinsically from barycentric coords and edge lengths,
+        // but just use the extrinsic calculation.
+        const Eigen::RowVector3d m3 = VERTICES.row(FACES(fid, 0)) * bc(0) + VERTICES.row(FACES(fid, 1)) * bc(1) +
+                                      VERTICES.row(FACES(fid, 2)) * bc(2);
+        int cid = 0;
+        Eigen::Vector3d((VERTICES.row(FACES(fid, 0)) - m3).squaredNorm(),
+                        (VERTICES.row(FACES(fid, 1)) - m3).squaredNorm(),
+                        (VERTICES.row(FACES(fid, 2)) - m3).squaredNorm())
+            .minCoeff(&cid);
+        LAST_VERTEX = FACES(fid, cid);
+
+        if (SELECT_ANCHORS) {
+            auto it = std::find(ANCHORS.begin(), ANCHORS.end(), LAST_VERTEX);
+            if (it == ANCHORS.end()) {
+                ANCHORS.push_back(LAST_VERTEX);
+                Eigen::VectorXi b(ANCHORS.size());
+                for (size_t i = 0; i < ANCHORS.size(); i++) b(i) = ANCHORS[i];
+                igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
+            } else {
+                ANCHORS.erase(it);
+            }
+        }
+
+        IS_DRAGGING = true;
+        update_vis(viewer);
+        return true;
+    }
+    return false;
+}
+
+bool mouse_up(igl::opengl::glfw::Viewer& viewer, int button, int mods) {
+    IS_DRAGGING = false;
+    return false;
+}
+
+bool mouse_move(igl::opengl::glfw::Viewer& viewer, int button, int mods) {
+    if (IS_DRAGGING && !SELECT_ANCHORS) {
+
+        Eigen::RowVector3f drag_mouse(viewer.current_mouse_x, viewer.core().viewport(3) - viewer.current_mouse_y,
+                                      LAST_MOUSE(2));
+        Eigen::RowVector3f drag_scene, last_scene;
+        igl::unproject(drag_mouse, viewer.core().view, viewer.core().proj, viewer.core().viewport, drag_scene);
+        igl::unproject(LAST_MOUSE, viewer.core().view, viewer.core().proj, viewer.core().viewport, last_scene);
+        LAST_MOUSE = drag_mouse;
+
+        HANDLES.resize(ANCHORS.size(), 3);
+        for (size_t i = 0; i < HANDLES.rows(); i++) {
+            HANDLES.row(i) = VERTICES.row(ANCHORS[i]);
+            if (ANCHORS[i] == LAST_VERTEX) HANDLES.row(i) += (drag_scene - last_scene).cast<double>();
+        }
+
+        update_ARAP(viewer);
+        update_vis(viewer);
+        return true;
+    }
+    return false;
+}
+
+int main(int argc, char* argv[]) {
+
+    if (argc > 1) {
+        MESH_FILEPATH = argv[1];
+    } else {
+        std::cerr << "Usage: ./main [path/to/mesh]" << std::endl;
+    }
+
+    // Load in mesh
+    igl::read_triangle_mesh(MESH_FILEPATH, VERTICES, FACES);
+
+    // Attach a menu plugin
+    igl::opengl::glfw::Viewer viewer;
+    igl::opengl::glfw::imgui::ImGuiPlugin plugin;
+    viewer.plugins.push_back(&plugin);
+    igl::opengl::glfw::imgui::ImGuiMenu menu;
+    plugin.widgets.push_back(&menu);
+
+    // Add content to the default menu
+    menu.callback_draw_viewer_menu = [&]() {
+        // Draw parent menu content
+        menu.draw_viewer_menu();
+
+        ImGui::Text("Mode: %s", SELECT_ANCHORS ? "Anchor selection" : "ARAP deformation");
+    };
+
+    // ARAP precomputation
+    ARAP_DATA.max_iter = 100;
+    ARAP_DATA.with_dynamics = true;
+    ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES;
+    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES_AND_RIMS;
+    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_ELEMENTS; // triangles or tets
+    Eigen::VectorXi b(0);
+    igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
+
+    // Plot the mesh, set up callbacks
+    viewer.data().set_mesh(VERTICES, FACES);
+    viewer.data().set_face_based(true);
+    viewer.core().is_animating = true;
+    viewer.callback_key_pressed = &key_pressed;
+    viewer.callback_mouse_down = &mouse_down;
+    viewer.callback_mouse_up = &mouse_up;
+    viewer.callback_mouse_move = &mouse_move;
+    viewer.launch();
 }
