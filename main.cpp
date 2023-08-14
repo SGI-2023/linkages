@@ -147,7 +147,7 @@ void setup(igl::opengl::glfw::Viewer& viewer) {
     ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_ELEMENTS; // triangles or tets
     Eigen::VectorXi b(0);
     igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
-
+    viewer.data().clear();
     viewer.data().set_mesh(VERTICES, FACES);
 }
 
@@ -157,7 +157,9 @@ int main(int argc, char* argv[]) {
         MESH_FILEPATH = argv[1];
         INTERNAL_MESH = false;
         // Load in mesh
-        igl::read_triangle_mesh(MESH_FILEPATH, VERTICES, FACES);
+        if (!igl::read_triangle_mesh(MESH_FILEPATH, VERTICES, FACES)) {
+            throw std::runtime_error{"Error: Could not read mesh file"};
+        }
     } else {
         INTERNAL_MESH = true;
     }
