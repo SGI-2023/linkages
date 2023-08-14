@@ -19,7 +19,8 @@ Eigen::RowVector3d RED(1.0, 0.0, 0.0);
 Eigen::RowVector3d GOLD(255.0 / 255.0, 228.0 / 255.0, 58.0 / 255.0);
 
 // ==  solve data
-std::vector<int> ANCHORS; // indices of vertices which have been selected as anchors
+std::vector<int> ANCHORS;  // indices of vertices which have been selected as anchors
+std::vector<int> VIDX_MAP; // maps vertex index to index in ANCHORS
 Eigen::MatrixXd HANDLES;
 igl::ARAPData ARAP_DATA;
 bool IS_DRAGGING = false;
@@ -43,10 +44,23 @@ void update_ARAP(igl::opengl::glfw::Viewer& viewer) {
     viewer.data().compute_normals();
 }
 
+void update_anchor_positions() {
+    // Update positions of anchors
+    HANDLES.resize(ANCHORS.size(), 3);
+    VIDX_MAP.resize(VERTICES.rows());
+    for (size_t i = 0; i < HANDLES.rows(); i++) {
+        HANDLES.row(i) = VERTICES.row(ANCHORS[i]);
+        VIDX_MAP[ANCHORS[i]] = i;
+    }
+}
+
 bool key_pressed(igl::opengl::glfw::Viewer& viewer, unsigned char key, int mods) {
     switch (key) {
         case ' ': {
             SELECT_ANCHORS = !SELECT_ANCHORS;
+
+            update_anchor_positions();
+
             break;
         }
         default: {
@@ -112,11 +126,7 @@ bool mouse_move(igl::opengl::glfw::Viewer& viewer, int button, int mods) {
         igl::unproject(LAST_MOUSE, viewer.core().view, viewer.core().proj, viewer.core().viewport, last_scene);
         LAST_MOUSE = drag_mouse;
 
-        HANDLES.resize(ANCHORS.size(), 3);
-        for (size_t i = 0; i < HANDLES.rows(); i++) {
-            HANDLES.row(i) = VERTICES.row(ANCHORS[i]);
-            if (ANCHORS[i] == LAST_VERTEX) HANDLES.row(i) += (drag_scene - last_scene).cast<double>();
-        }
+        HANDLES.row(VIDX_MAP[LAST_VERTEX]) += (drag_scene - last_scene).cast<double>();
 
         update_ARAP(viewer);
         update_vis(viewer);
@@ -154,9 +164,9 @@ int main(int argc, char* argv[]) {
     // ARAP precomputation
     ARAP_DATA.max_iter = 100;
     ARAP_DATA.with_dynamics = true;
-    ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES;
+    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES;
     // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES_AND_RIMS;
-    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_ELEMENTS; // triangles or tets
+    ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_ELEMENTS; // triangles or tets
     Eigen::VectorXi b(0);
     igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
 
