@@ -1,5 +1,7 @@
 # SGI 2023 Week 6: Design and Simulation of Kirigami Linkages
 
+![teaser image](media/teaser.png)
+
 To get started, clone the repo:
 ```
 git clone --recursive https://github.com/SGI-2023/linkages.git
@@ -11,7 +13,11 @@ git branch <your-new-branch-name>
 git checkout <your-new-branch-name>
 ```
 
-![teaser image](media/teaser.png)
+Later, if you would like to merge changes from the `main` branch into your own branch, run 
+```
+git merge origin/main
+```
+from your branch.
 
 ## Compile
 
