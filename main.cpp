@@ -146,7 +146,7 @@ void setup(igl::opengl::glfw::Viewer& viewer) {
     ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES_AND_RIMS;
     // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_ELEMENTS; // triangles or tets
     Eigen::VectorXi b(0);
-    // igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
+    igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
 
     viewer.data().clear();
     viewer.data().set_mesh(VERTICES, FACES);
@@ -192,7 +192,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Set up callbacks
-    viewer.data().set_face_based(true);
+    viewer.data().set_face_based(false);
     viewer.core().is_animating = true;
     viewer.callback_key_pressed = &key_pressed;
     viewer.callback_mouse_down = &mouse_down;
