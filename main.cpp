@@ -148,6 +148,7 @@ void setup(igl::opengl::glfw::Viewer& viewer) {
     Eigen::VectorXi b(0);
     igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
 
+    viewer.data().clear();
     viewer.data().set_mesh(VERTICES, FACES);
 }
 
