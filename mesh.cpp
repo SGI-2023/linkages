@@ -1,4 +1,5 @@
 #include "mesh.h"
+#include <igl/remove_unreferenced.h>
 
 /*
  * Generate a mesh with a square linkage pattern, with dimensions N x M (where N = number of rows of squares, M = number
@@ -7,43 +8,67 @@
  * Return the vertex positions and face vertex indices in the matrices V and F, respectively.
  */
 void generateSquarePatternMesh(int N, int M, Eigen::MatrixXd& V, Eigen::MatrixXi& F) {
-    const int numVertices{(N + 1) * (M + 1)};
-    V.resize(numVertices, 3);
-    const int numFaces{2 * N * M};
-    F.resize(numFaces, 3);
+    N = 1; // TODO: FIX!
+    F.resize(2 * N * M, 3); // Each square is composed of two triangles and there are N * M squares
+    std::vector<Eigen::RowVector3d> positions;
+    positions.reserve(4 * N * M); // Upper bound of the number of unique vertices, final number should be lower
 
-    /**
-     * (0, 0) (0, 1) (0, 2) ... (0, M - 1)
-     * ...
-     * (N - 1, 0) (N - 1, 1) (N - 1, 2) ... (N - 1, M - 1)
-    */
-    const auto linearizeIndex = [numCols = M + 1](int row, int col) {
-        return (row * numCols) + col;
-    };
+    const auto linearizeIndex = [numCols = M](int row, int col) { return (row * numCols) + col; };
 
-    // Create mesh geometry
-    const double rowOffset{1.0 / N};
+    const double rowOffset{1.0 / M};
     const double colOffset{1.0 / M};
-    for (int row = 0; row < N + 1; ++row) {
-        for (int col = 0; col < M + 1; ++col) {
-            const int vIdx{linearizeIndex(row, col)};
-            V.row(vIdx) = Eigen::Vector3d{col * colOffset - (1.0 / (2.0 * N)), row * rowOffset - (1.0 / (2.0 * M)), 0.0};
-        }
-    }
-    
-    // Create mesh topology
-    // Note: could merge both loops into one for performance, just think the code is "cleaner" separately.
-    int faceIdx{0};
+    int vIdx{0};
+    //V.row(vIdx) = Eigen::Vector3d{0.0, rowOffset, 0.0};
+    positions.emplace_back(Eigen::RowVector3d{0.0, -rowOffset, 0.0});
+    int fIdx{0};
     for (int row = 0; row < N; ++row) {
         for (int col = 0; col < M; ++col) {
-            F.row(faceIdx) = Eigen::Vector3i{linearizeIndex(row, col),
-                                             linearizeIndex(row, col + 1) , linearizeIndex(row + 1, col + 1)};
-            F.row(faceIdx + 1) = Eigen::Vector3i{linearizeIndex(row, col), linearizeIndex(row + 1, col + 1),
-                                                 linearizeIndex(row + 1, col)};
-            faceIdx += 2;
+            const int squareIdx{linearizeIndex(row, col)};
+
+            if (squareIdx % 2 == 0) { // Even square pattern
+                // vIdx is bottom-left
+                // V.row(vIdx + 1) = Eigen::Vector3d{(col + 1) * colOffset, -(row + 1) * rowOffset, 0.0}; // Bottom-right
+                // V.row(vIdx + 2) = Eigen::Vector3d{col * colOffset, row * rowOffset, 0.0};             // Top-left
+                // V.row(vIdx + 3) = Eigen::Vector3d{(col + 1) * colOffset, row * rowOffset, 0.0};       // Top-right
+
+                positions.emplace_back(Eigen::RowVector3d{(col + 1) * colOffset, -(row + 1) * rowOffset, 0.0}); // Bottom-right
+                positions.emplace_back(Eigen::RowVector3d{col * colOffset, -row * rowOffset, 0.0});             // Top-left
+                positions.emplace_back(Eigen::RowVector3d{(col + 1) * colOffset, -row * rowOffset, 0.0});       // Top-right
+
+                F.row(fIdx) = Eigen::Vector3i{vIdx, vIdx + 1, vIdx + 2};
+                F.row(fIdx + 1) = Eigen::Vector3i{vIdx + 2, vIdx + 1, vIdx + 3};
+            } else { // Odd square pattern
+                // vIdx is top-left
+                // V.row(vIdx + 1) = Eigen::Vector3d{(col + 1) * colOffset, -row * rowOffset, 0.0};       // Top-right
+                // V.row(vIdx + 2) = Eigen::Vector3d{col * colOffset, -(row + 1) * rowOffset, 0.0};       // Bottom-left
+                // V.row(vIdx + 3) = Eigen::Vector3d{(col + 1) * colOffset, (row + 1) * rowOffset, 0.0}; // Bottom-right
+
+                positions.emplace_back(Eigen::RowVector3d{(col + 1) * colOffset, -row * rowOffset, 0.0});
+                positions.emplace_back(Eigen::RowVector3d{col * colOffset, -(row + 1) * rowOffset, 0.0});
+                positions.emplace_back(Eigen::RowVector3d{(col + 1) * colOffset, -(row + 1) * rowOffset, 0.0});
+                
+                F.row(fIdx) = Eigen::Vector3i{vIdx, vIdx + 3, vIdx + 1};
+                F.row(fIdx + 1) = Eigen::Vector3i{vIdx + 3, vIdx, vIdx + 2};
+            }
+
+            fIdx += 2;
+            vIdx += 3;
         }
     }
-    assert(faceIdx == numFaces);
+
+    assert(vIdx + 1 == positions.size());
+    V = Eigen::Map<Eigen::MatrixXd>(positions.front().data(), 3, positions.size());
+    V.transposeInPlace();
+
+    /*
+    std::cout << "Pos=\n";
+    for (int i = 0; i < vIdx + 1; ++i) {
+        std::cout << "at " << i << ": " << positions[i] << "\n";
+    }
+    */
+    std::cout << "Vertices =\n" << V << "\n";
+    std::cout << "Faces =\n" << F << "\n";
+
 }
 
 
