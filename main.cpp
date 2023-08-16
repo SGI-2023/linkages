@@ -31,8 +31,8 @@ std::string MESH_FILEPATH;
 Eigen::RowVector3f LAST_MOUSE;
 bool SELECT_ANCHORS = true;
 int LAST_VERTEX;
-int N_ROWS = 2;
-int N_COLS = 2;
+int N_ROWS = 4;
+int N_COLS = 4;
 
 
 void update_vis(igl::opengl::glfw::Viewer& viewer) {
@@ -143,8 +143,8 @@ void setup(igl::opengl::glfw::Viewer& viewer) {
     ARAP_DATA.max_iter = 100;
     ARAP_DATA.with_dynamics = true;
     // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES;
-    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES_AND_RIMS;
-    ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_ELEMENTS; // triangles or tets
+    ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_SPOKES_AND_RIMS;
+    // ARAP_DATA.energy = igl::ARAP_ENERGY_TYPE_ELEMENTS; // triangles or tets
     Eigen::VectorXi b(0);
     igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
     viewer.data().clear();
@@ -193,7 +193,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Set up callbacks
-    viewer.data().set_face_based(true);
+    viewer.data().set_face_based(false);
     viewer.core().is_animating = true;
     viewer.callback_key_pressed = &key_pressed;
     viewer.callback_mouse_down = &mouse_down;
