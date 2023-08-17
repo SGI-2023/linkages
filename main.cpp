@@ -6,8 +6,12 @@
 #include <igl/readOFF.h>
 #include <igl/read_triangle_mesh.h>
 #include <igl/unproject_onto_mesh.h>
+#include <memory>
 
 #include "mesh.h"
+
+#include <Solver.h>
+#include <Constraint.h>
 
 // ==  geometric data
 Eigen::MatrixXd VERTICES(0, 3); // |V| x 3 matrix; the i-th row contains the 3D position of the i-th vertex
@@ -25,11 +29,15 @@ Eigen::MatrixXd HANDLES;
 igl::ARAPData ARAP_DATA;
 bool IS_DRAGGING = false;
 
+// ShapeOp data
+std::unique_ptr<ShapeOp::Solver> solver{std::make_unique<ShapeOp::Solver>()};
+
 // ==  program parameters
 bool INTERNAL_MESH = false;
 std::string MESH_FILEPATH;
 Eigen::RowVector3f LAST_MOUSE;
 bool SELECT_ANCHORS = true;
+int OPTIM_METHOD = 0; // 0 for ARAP, 1 for ShapeUp, could be an enum
 int LAST_VERTEX;
 int N_ROWS = 4;
 int N_COLS = 4;
@@ -138,7 +146,7 @@ bool mouse_move(igl::opengl::glfw::Viewer& viewer, int button, int mods) {
     return false;
 }
 
-void setup(igl::opengl::glfw::Viewer& viewer) {
+void arap_setup(igl::opengl::glfw::Viewer& viewer) {
     // ARAP precomputation
     ARAP_DATA.max_iter = 100;
     ARAP_DATA.with_dynamics = true;
@@ -175,13 +183,33 @@ int main(int argc, char* argv[]) {
     menu.callback_draw_viewer_menu = [&]() {
         // Draw parent menu content
         menu.draw_viewer_menu();
+        
+        if (ImGui::CollapsingHeader("Optimization Method", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::RadioButton("ARAP", &OPTIM_METHOD, 0);
+            ImGui::RadioButton("ShapeUp", &OPTIM_METHOD, 1);
+        }
 
         if (ImGui::CollapsingHeader("Mesh generation", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::InputInt("Rows", &N_ROWS);
             ImGui::InputInt("Cols", &N_COLS);
             if (ImGui::Button("Square linkage")) {
                 generateSquarePatternMesh(N_ROWS, N_COLS, VERTICES, FACES);
-                setup(viewer);
+
+                if (OPTIM_METHOD == 0) {
+                    arap_setup(viewer);
+                }
+                else {
+                    ShapeOp::Matrix3X posMatrix(3, VERTICES.rows());
+                    for (Eigen::Index vidx{0}; vidx < VERTICES.rows(); ++vidx) {
+                        const Eigen::Vector3d pos{VERTICES.row(vidx)};
+                        posMatrix.col(vidx) = pos.cast<ShapeOp::Scalar>();
+                    }
+                    solver->setPoints(posMatrix);
+
+                    // TODO: initialize constraints
+
+                    solver->initialize();
+                }
             }
         }
 
@@ -189,7 +217,7 @@ int main(int argc, char* argv[]) {
     };
 
     if (!INTERNAL_MESH) {
-        setup(viewer);
+        arap_setup(viewer);
     }
 
     // Set up callbacks
