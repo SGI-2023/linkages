@@ -11,10 +11,15 @@ igl_include(glfw)
 igl_include(imgui)
 #igl_include(spectra)
 
+add_subdirectory(shapeop)
+
 # Add your project files
 file(GLOB SRC_FILES *.cpp)
 add_executable(${PROJECT_NAME} ${SRC_FILES})
 target_link_libraries(${PROJECT_NAME} PUBLIC igl::glfw igl::imgui)
+target_link_libraries(${PROJECT_NAME} PUBLIC ShapeOp)
+target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/shapeop/libShapeOp/src/)
+target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/shapeop/libShapeOp/api/)
 
 # Copy data directory to binary directory
 add_custom_command(
