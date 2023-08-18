@@ -7,6 +7,7 @@
 #include <igl/read_triangle_mesh.h>
 #include <igl/unproject_onto_mesh.h>
 #include <memory>
+#include <unordered_map>
 
 #include "mesh.h"
 
@@ -30,7 +31,65 @@ igl::ARAPData ARAP_DATA;
 bool IS_DRAGGING = false;
 
 // ShapeOp data
+class ClosenessConstraint
+{
+public:
+    ClosenessConstraint(ShapeOp::Solver& solver, float weight, std::vector<int> movedIds, std::vector<int> fixedIds) {
+        for (const auto id: movedIds) {
+            auto c = std::make_shared<ShapeOp::ClosenessConstraint>(std::vector<int>{id}, weight, solver.getPoints());
+            const int constraintId{solver.addConstraint(c)};
+            _constraintIds.emplace(id, constraintId);
+        }
+
+        for (const auto id: fixedIds) {
+            auto c = std::make_shared<ShapeOp::ClosenessConstraint>(std::vector<int>{id}, weight, solver.getPoints());
+            const int constraintId{solver.addConstraint(c)};
+            _constraintIds.emplace(id, constraintId);
+        }
+
+        /*std::cout << "[Id, Constraint Id]:\n";
+        for (const auto& p: _constraintIds) {
+            std::cout << "[" << p.first << ", " << p.second << "] Pos: " << std::dynamic_pointer_cast<ShapeOp::ClosenessConstraint>(solver.getConstraint(p.second))->getPosition() << "\n";
+        }*/
+    }
+
+    void updatePositions(ShapeOp::Solver& solver, std::vector<int> movedIds, const Eigen::Vector3d& targetPos) {
+        for (const auto id: movedIds) {
+            //std::cout << "ID = " << id << "\n";
+            auto it{_constraintIds.find(id)};
+            if (it == _constraintIds.end()) {
+                throw std::runtime_error{"ERROR"};
+            }
+
+            const int constraintId{it->second};
+            auto constraint = std::dynamic_pointer_cast<ShapeOp::ClosenessConstraint>(solver.getConstraint(constraintId));
+            constraint->setPosition(targetPos.cast<ShapeOp::Scalar>());
+        }
+
+        /*std::cout << "[Id, Constraint Id]:\n";
+        for (const auto& p: _constraintIds) {
+            std::cout << "[" << p.first << ", " << p.second << "] Pos: " << std::dynamic_pointer_cast<ShapeOp::ClosenessConstraint>(solver.getConstraint(p.second))->getPosition() << "\n";
+        }*/
+    }
+
+private:
+    std::unordered_map<int, int> _constraintIds;
+};
+
 std::unique_ptr<ShapeOp::Solver> solver{std::make_unique<ShapeOp::Solver>()};
+std::unique_ptr<ClosenessConstraint> closeness;
+
+void updateVertices(ShapeOp::Solver& solver, igl::opengl::glfw::Viewer& viewer) {
+    ShapeOp::Matrix3X posMatrix(3, VERTICES.rows());
+    posMatrix = solver.getPoints();
+    
+    for (Eigen::Index vidx{0}; vidx < posMatrix.cols(); ++vidx) {
+        VERTICES.row(vidx) = posMatrix.col(vidx).transpose();
+    }
+
+    viewer.data().clear();
+    viewer.data().set_mesh(VERTICES, FACES);
+}
 
 // ==  program parameters
 bool INTERNAL_MESH = false;
@@ -82,43 +141,48 @@ bool key_pressed(igl::opengl::glfw::Viewer& viewer, unsigned char key, int mods)
 }
 
 bool mouse_down(igl::opengl::glfw::Viewer& viewer, int button, int mods) {
+    if (OPTIM_METHOD == 0) { // ARAP
+        // Cast a ray in the view direction starting from the mouse position
+        double x = viewer.current_mouse_x;
+        double y = viewer.core().viewport(3) - viewer.current_mouse_y;
+        LAST_MOUSE = Eigen::RowVector3f(x, y, 0);
+        int fid;            // index of selected face
+        Eigen::Vector3f bc; // barycentric coords in selected face
+        if (igl::unproject_onto_mesh(Eigen::Vector2f(x, y), viewer.core().view, viewer.core().proj, viewer.core().viewport,
+                                    VERTICES, FACES, fid, bc)) {
 
-    // Cast a ray in the view direction starting from the mouse position
-    double x = viewer.current_mouse_x;
-    double y = viewer.core().viewport(3) - viewer.current_mouse_y;
-    LAST_MOUSE = Eigen::RowVector3f(x, y, 0);
-    int fid;            // index of selected face
-    Eigen::Vector3f bc; // barycentric coords in selected face
-    if (igl::unproject_onto_mesh(Eigen::Vector2f(x, y), viewer.core().view, viewer.core().proj, viewer.core().viewport,
-                                 VERTICES, FACES, fid, bc)) {
+            // Get closest vertex. Could do this calculation purely intrinsically from barycentric coords and edge lengths,
+            // but just use the extrinsic calculation.
+            const Eigen::RowVector3d m3 = VERTICES.row(FACES(fid, 0)) * bc(0) + VERTICES.row(FACES(fid, 1)) * bc(1) +
+                                        VERTICES.row(FACES(fid, 2)) * bc(2);
+            int cid = 0;
+            Eigen::Vector3d((VERTICES.row(FACES(fid, 0)) - m3).squaredNorm(),
+                            (VERTICES.row(FACES(fid, 1)) - m3).squaredNorm(),
+                            (VERTICES.row(FACES(fid, 2)) - m3).squaredNorm())
+                .minCoeff(&cid);
+            LAST_VERTEX = FACES(fid, cid);
 
-        // Get closest vertex. Could do this calculation purely intrinsically from barycentric coords and edge lengths,
-        // but just use the extrinsic calculation.
-        const Eigen::RowVector3d m3 = VERTICES.row(FACES(fid, 0)) * bc(0) + VERTICES.row(FACES(fid, 1)) * bc(1) +
-                                      VERTICES.row(FACES(fid, 2)) * bc(2);
-        int cid = 0;
-        Eigen::Vector3d((VERTICES.row(FACES(fid, 0)) - m3).squaredNorm(),
-                        (VERTICES.row(FACES(fid, 1)) - m3).squaredNorm(),
-                        (VERTICES.row(FACES(fid, 2)) - m3).squaredNorm())
-            .minCoeff(&cid);
-        LAST_VERTEX = FACES(fid, cid);
-
-        if (SELECT_ANCHORS) {
-            auto it = std::find(ANCHORS.begin(), ANCHORS.end(), LAST_VERTEX);
-            if (it == ANCHORS.end()) {
-                ANCHORS.push_back(LAST_VERTEX);
-                Eigen::VectorXi b(ANCHORS.size());
-                for (size_t i = 0; i < ANCHORS.size(); i++) b(i) = ANCHORS[i];
-                igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
-            } else {
-                ANCHORS.erase(it);
+            if (SELECT_ANCHORS) {
+                auto it = std::find(ANCHORS.begin(), ANCHORS.end(), LAST_VERTEX);
+                if (it == ANCHORS.end()) {
+                    ANCHORS.push_back(LAST_VERTEX);
+                    Eigen::VectorXi b(ANCHORS.size());
+                    for (size_t i = 0; i < ANCHORS.size(); i++) b(i) = ANCHORS[i];
+                    igl::arap_precomputation(VERTICES, FACES, VERTICES.cols(), b, ARAP_DATA);
+                } else {
+                    ANCHORS.erase(it);
+                }
             }
-        }
 
-        IS_DRAGGING = true;
-        update_vis(viewer);
-        return true;
+            IS_DRAGGING = true;
+            update_vis(viewer);
+            return true;
+        }
     }
+    else { // ShapeUp
+        // TODO
+    }
+    
     return false;
 }
 
@@ -128,21 +192,27 @@ bool mouse_up(igl::opengl::glfw::Viewer& viewer, int button, int mods) {
 }
 
 bool mouse_move(igl::opengl::glfw::Viewer& viewer, int button, int mods) {
-    if (IS_DRAGGING && !SELECT_ANCHORS) {
+    if (OPTIM_METHOD == 0) { // ARAP
+        if (IS_DRAGGING && !SELECT_ANCHORS) {
 
-        Eigen::RowVector3f drag_mouse(viewer.current_mouse_x, viewer.core().viewport(3) - viewer.current_mouse_y,
-                                      LAST_MOUSE(2));
-        Eigen::RowVector3f drag_scene, last_scene;
-        igl::unproject(drag_mouse, viewer.core().view, viewer.core().proj, viewer.core().viewport, drag_scene);
-        igl::unproject(LAST_MOUSE, viewer.core().view, viewer.core().proj, viewer.core().viewport, last_scene);
-        LAST_MOUSE = drag_mouse;
+            Eigen::RowVector3f drag_mouse(viewer.current_mouse_x, viewer.core().viewport(3) - viewer.current_mouse_y,
+                                        LAST_MOUSE(2));
+            Eigen::RowVector3f drag_scene, last_scene;
+            igl::unproject(drag_mouse, viewer.core().view, viewer.core().proj, viewer.core().viewport, drag_scene);
+            igl::unproject(LAST_MOUSE, viewer.core().view, viewer.core().proj, viewer.core().viewport, last_scene);
+            LAST_MOUSE = drag_mouse;
 
-        HANDLES.row(VIDX_MAP[LAST_VERTEX]) += (drag_scene - last_scene).cast<double>();
+            HANDLES.row(VIDX_MAP[LAST_VERTEX]) += (drag_scene - last_scene).cast<double>();
 
-        update_ARAP(viewer);
-        update_vis(viewer);
-        return true;
+            update_ARAP(viewer);
+            update_vis(viewer);
+            return true;
+        }
     }
+    else { // ShapeUp
+        // TODO
+    }
+
     return false;
 }
 
@@ -161,71 +231,112 @@ void arap_setup(igl::opengl::glfw::Viewer& viewer) {
 
 int main(int argc, char* argv[]) {
 
-    if (argc > 1) {
+    try
+    {
+        if (argc > 1) {
         MESH_FILEPATH = argv[1];
         INTERNAL_MESH = false;
         // Load in mesh
         if (!igl::read_triangle_mesh(MESH_FILEPATH, VERTICES, FACES)) {
             throw std::runtime_error{"Error: Could not read mesh file"};
         }
-    } else {
-        INTERNAL_MESH = true;
-    }
-
-    // Attach a menu plugin
-    igl::opengl::glfw::Viewer viewer;
-    igl::opengl::glfw::imgui::ImGuiPlugin plugin;
-    viewer.plugins.push_back(&plugin);
-    igl::opengl::glfw::imgui::ImGuiMenu menu;
-    plugin.widgets.push_back(&menu);
-
-    // Add content to the default menu
-    menu.callback_draw_viewer_menu = [&]() {
-        // Draw parent menu content
-        menu.draw_viewer_menu();
-        
-        if (ImGui::CollapsingHeader("Optimization Method", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::RadioButton("ARAP", &OPTIM_METHOD, 0);
-            ImGui::RadioButton("ShapeUp", &OPTIM_METHOD, 1);
+        } else {
+            INTERNAL_MESH = true;
         }
 
-        if (ImGui::CollapsingHeader("Mesh generation", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::InputInt("Rows", &N_ROWS);
-            ImGui::InputInt("Cols", &N_COLS);
-            if (ImGui::Button("Square linkage")) {
-                generateSquarePatternMesh(N_ROWS, N_COLS, VERTICES, FACES);
+        // Attach a menu plugin
+        igl::opengl::glfw::Viewer viewer;
+        igl::opengl::glfw::imgui::ImGuiPlugin plugin;
+        viewer.plugins.push_back(&plugin);
+        igl::opengl::glfw::imgui::ImGuiMenu menu;
+        plugin.widgets.push_back(&menu);
 
-                if (OPTIM_METHOD == 0) {
-                    arap_setup(viewer);
-                }
-                else {
-                    ShapeOp::Matrix3X posMatrix(3, VERTICES.rows());
-                    for (Eigen::Index vidx{0}; vidx < VERTICES.rows(); ++vidx) {
-                        const Eigen::Vector3d pos{VERTICES.row(vidx)};
-                        posMatrix.col(vidx) = pos.cast<ShapeOp::Scalar>();
+        // Add content to the default menu
+        menu.callback_draw_viewer_menu = [&]() {
+            // Draw parent menu content
+            menu.draw_viewer_menu();
+            
+            if (ImGui::CollapsingHeader("Mesh generation", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::InputInt("Rows", &N_ROWS);
+                ImGui::InputInt("Cols", &N_COLS);
+                if (ImGui::Button("Square linkage")) {
+                    generateSquarePatternMesh(N_ROWS, N_COLS, VERTICES, FACES);
+
+                    if (OPTIM_METHOD == 0) {
+                        arap_setup(viewer);
                     }
-                    solver->setPoints(posMatrix);
+                    else { // ShapeUp
+                        ShapeOp::Matrix3X posMatrix(3, VERTICES.rows());
+                        for (Eigen::Index vidx{0}; vidx < VERTICES.rows(); ++vidx) {
+                            const Eigen::Vector3d pos{VERTICES.row(vidx)};
+                            posMatrix.col(vidx) = pos.cast<ShapeOp::Scalar>();
+                        }
+                        solver->setPoints(posMatrix);
 
-                    // TODO: initialize constraints
+                        // TODO: add input
+                        int vertexToFix = 6; // Top-left
+                        int vertexToMove = 2; // Bottom-right
+                        closeness = std::make_unique<ClosenessConstraint>(
+                            *solver, 1000.0f, std::vector<int>{vertexToMove}, std::vector<int>{vertexToFix}
+                        );
+                        assert(closeness != nullptr);
 
-                    solver->initialize();
+                        solver->initialize();
+                        
+                        viewer.data().clear();
+                        viewer.data().set_mesh(VERTICES, FACES);
+                    }
                 }
             }
+
+            if (ImGui::CollapsingHeader("Optimization Method", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::RadioButton("ARAP", &OPTIM_METHOD, 0);
+                ImGui::RadioButton("ShapeUp", &OPTIM_METHOD, 1);
+
+                if (OPTIM_METHOD == 1 && ImGui::CollapsingHeader("Closeness Energy")) {
+                    if (ImGui::Button("Apply")) {
+                        const Eigen::Vector3d targetPos{0.7, 0.7, 0.0};
+
+                        // TODO: add input
+                        int vertexToFix = 6; // Top-left
+                        int vertexToMove = 2; // Bottom-right
+
+                        closeness->updatePositions(*solver, std::vector<int>{vertexToMove}, targetPos);
+
+                        /*std::cout << "Before solve:\n";
+                        std::cout << "posMatrix=\n" << solver->getPoints() << "\n";
+                        std::cout << "VERTICES=\n" << VERTICES << "\n";*/
+
+                        solver->solve(10);
+
+                        /*std::cout << "After solve:\n";
+                        std::cout << "posMatrix=\n" << solver->getPoints() << "\n";
+                        std::cout << "VERTICES=\n" << VERTICES << "\n";*/
+
+                        updateVertices(*solver, viewer);
+                    }
+                }
+            }
+
+            ImGui::Text("Mode: %s", SELECT_ANCHORS ? "Anchor selection" : "ARAP deformation");
+        };
+
+        if (!INTERNAL_MESH) {
+            arap_setup(viewer);
         }
 
-        ImGui::Text("Mode: %s", SELECT_ANCHORS ? "Anchor selection" : "ARAP deformation");
-    };
-
-    if (!INTERNAL_MESH) {
-        arap_setup(viewer);
+        // Set up callbacks
+        viewer.data().set_face_based(false);
+        viewer.core().is_animating = true;
+        viewer.callback_key_pressed = &key_pressed;
+        viewer.callback_mouse_down = &mouse_down;
+        viewer.callback_mouse_up = &mouse_up;
+        viewer.callback_mouse_move = &mouse_move;
+        viewer.launch();
     }
-
-    // Set up callbacks
-    viewer.data().set_face_based(false);
-    viewer.core().is_animating = true;
-    viewer.callback_key_pressed = &key_pressed;
-    viewer.callback_mouse_down = &mouse_down;
-    viewer.callback_mouse_up = &mouse_up;
-    viewer.callback_mouse_move = &mouse_move;
-    viewer.launch();
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+    }
+    
 }
