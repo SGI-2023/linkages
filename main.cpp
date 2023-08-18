@@ -1,4 +1,5 @@
 #include <igl/arap.h>
+#include <igl/edges.h>
 #include <igl/opengl/glfw/Viewer.h>
 #include <igl/opengl/glfw/imgui/ImGuiHelpers.h>
 #include <igl/opengl/glfw/imgui/ImGuiMenu.h>
@@ -31,10 +32,10 @@ igl::ARAPData ARAP_DATA;
 bool IS_DRAGGING = false;
 
 // ShapeOp data
-class ClosenessConstraint
+class ClosenessConstraints
 {
 public:
-    ClosenessConstraint(ShapeOp::Solver& solver, float weight, std::vector<int> movedIds, std::vector<int> fixedIds) {
+    ClosenessConstraints(ShapeOp::Solver& solver, float weight, std::vector<int> movedIds, std::vector<int> fixedIds) {
         for (const auto id: movedIds) {
             auto c = std::make_shared<ShapeOp::ClosenessConstraint>(std::vector<int>{id}, weight, solver.getPoints());
             const int constraintId{solver.addConstraint(c)};
@@ -76,8 +77,22 @@ private:
     std::unordered_map<int, int> _constraintIds;
 };
 
+struct EdgeStrainConstraints {
+    EdgeStrainConstraints(ShapeOp::Solver& solver, float boundaryWeight, const Eigen::MatrixXi& edges, const Eigen::MatrixXd& edge_lengths) {
+        assert(edges.rows() == edge_lengths.rows());
+
+        for (Eigen::Index eidx{0}; eidx < edges.rows(); ++eidx) {
+            auto c = std::make_shared<ShapeOp::EdgeStrainConstraint>(std::vector<int>{edges(eidx, 0), edges(eidx, 1)}, 
+                boundaryWeight, solver.getPoints());
+            solver.addConstraint(c);
+            c->setEdgeLength(edge_lengths(eidx, 0));
+        }
+    }
+};
+
 std::unique_ptr<ShapeOp::Solver> solver{std::make_unique<ShapeOp::Solver>()};
-std::unique_ptr<ClosenessConstraint> closeness;
+std::unique_ptr<ClosenessConstraints> closeness{nullptr};
+std::unique_ptr<EdgeStrainConstraints> edgeStrain{nullptr};
 
 void updateVertices(ShapeOp::Solver& solver, igl::opengl::glfw::Viewer& viewer) {
     ShapeOp::Matrix3X posMatrix(3, VERTICES.rows());
@@ -276,10 +291,24 @@ int main(int argc, char* argv[]) {
                         // TODO: add input
                         int vertexToFix = 6; // Top-left
                         int vertexToMove = 2; // Bottom-right
-                        closeness = std::make_unique<ClosenessConstraint>(
+                        closeness = std::make_unique<ClosenessConstraints>(
                             *solver, 1000.0f, std::vector<int>{vertexToMove}, std::vector<int>{vertexToFix}
                         );
                         assert(closeness != nullptr);
+
+                        Eigen::MatrixXi E;
+                        igl::edges(FACES, E);
+                        // Q: Could use igl::edge_lengths instead? Is it in the same order as edges? I.e.,
+                        // edge_lengths.row(i) stores the edge length of the i-th edge in igl::edges?
+                        Eigen::MatrixXd E_lengths(E.rows(), 1);
+                        for (Eigen::Index eidx{0}; eidx < E.rows(); ++eidx) {
+                            const int e0{E(eidx, 0)};
+                            const int e1{E(eidx, 1)};
+                            E_lengths(eidx, 0) = (VERTICES.row(e1) - VERTICES.row(e0)).norm();
+                        }
+                        edgeStrain = std::make_unique<EdgeStrainConstraints>(
+                            *solver, 100.0f, E, E_lengths
+                        );
 
                         solver->initialize();
                         
@@ -295,7 +324,7 @@ int main(int argc, char* argv[]) {
 
                 if (OPTIM_METHOD == 1 && ImGui::CollapsingHeader("Closeness Energy")) {
                     if (ImGui::Button("Apply")) {
-                        const Eigen::Vector3d targetPos{0.7, 0.7, 0.0};
+                        const Eigen::Vector3d targetPos{1.5, 1.5, 0.0};
 
                         // TODO: add input
                         int vertexToFix = 6; // Top-left
