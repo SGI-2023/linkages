@@ -292,7 +292,7 @@ int main(int argc, char* argv[]) {
                         solver->setPoints(posMatrix);
 
                         closeness = std::make_unique<ClosenessConstraints>(
-                            *solver, 1000.0f, std::vector<int>{vertexToMove}, std::vector<int>{vertexToFix}
+                            *solver, 1.0f, std::vector<int>{vertexToMove}, std::vector<int>{vertexToFix}
                         );
                         assert(closeness != nullptr);
 
@@ -307,7 +307,7 @@ int main(int argc, char* argv[]) {
                             E_lengths(eidx, 0) = (VERTICES.row(e1) - VERTICES.row(e0)).norm();
                         }
                         edgeStrain = std::make_unique<EdgeStrainConstraints>(
-                            *solver, 100.0f, E, E_lengths
+                            *solver, 1000.0f, E, E_lengths
                         );
 
                         solver->initialize();
@@ -332,7 +332,7 @@ int main(int argc, char* argv[]) {
                         std::cout << "posMatrix=\n" << solver->getPoints() << "\n";
                         std::cout << "VERTICES=\n" << VERTICES << "\n";*/
 
-                        solver->solve(10);
+                        solver->solve(1024);
 
                         /*std::cout << "After solve:\n";
                         std::cout << "posMatrix=\n" << solver->getPoints() << "\n";
