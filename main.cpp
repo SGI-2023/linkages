@@ -90,9 +90,12 @@ struct EdgeStrainConstraints {
     }
 };
 
+
 std::unique_ptr<ShapeOp::Solver> solver{std::make_unique<ShapeOp::Solver>()};
 std::unique_ptr<ClosenessConstraints> closeness{nullptr};
 std::unique_ptr<EdgeStrainConstraints> edgeStrain{nullptr};
+int vertexToFix = 20; // Top-left
+int vertexToMove = 4; // Bottom-right
 
 void updateVertices(ShapeOp::Solver& solver, igl::opengl::glfw::Viewer& viewer) {
     ShapeOp::Matrix3X posMatrix(3, VERTICES.rows());
@@ -288,9 +291,6 @@ int main(int argc, char* argv[]) {
                         }
                         solver->setPoints(posMatrix);
 
-                        // TODO: add input
-                        int vertexToFix = 6; // Top-left
-                        int vertexToMove = 2; // Bottom-right
                         closeness = std::make_unique<ClosenessConstraints>(
                             *solver, 1000.0f, std::vector<int>{vertexToMove}, std::vector<int>{vertexToFix}
                         );
@@ -322,13 +322,9 @@ int main(int argc, char* argv[]) {
                 ImGui::RadioButton("ARAP", &OPTIM_METHOD, 0);
                 ImGui::RadioButton("ShapeUp", &OPTIM_METHOD, 1);
 
-                if (OPTIM_METHOD == 1 && ImGui::CollapsingHeader("Closeness Energy")) {
-                    if (ImGui::Button("Apply")) {
-                        const Eigen::Vector3d targetPos{1.5, 1.5, 0.0};
-
-                        // TODO: add input
-                        int vertexToFix = 6; // Top-left
-                        int vertexToMove = 2; // Bottom-right
+                if (OPTIM_METHOD == 1 && ImGui::CollapsingHeader("ShapeUp Solver")) {
+                    if (ImGui::Button("Run")) {
+                        const Eigen::Vector3d targetPos{Eigen::Vector3d{VERTICES.row(vertexToMove)} + Eigen::Vector3d{1.5, 1.5, 0.0}};
 
                         closeness->updatePositions(*solver, std::vector<int>{vertexToMove}, targetPos);
 
